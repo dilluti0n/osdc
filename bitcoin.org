@@ -1,0 +1,94 @@
+* 왜 secp256k1 인가?
+서명에 (표준적인) RSA/ed25516 대신 secp256k1 쓰는 이유
+** RSA
+- 128 비트 보안 강도 맞추려면 3072 비트 키 필요.
+- 비효율적....
+** ed25516
+- Schnorr over Curve25519
+- Schnorr 알고리즘은 특허가 2008년 2월에 만료됨
+- OpenSSL 지원 안했음. (유일한 지원이 ECDSA)
+- 비트코인은 2021년에 Tarproot 업데이트로 기존 ECDSA 에서 Schnorr 으로
+  서명 알고리즘 갈아탐
+- Curve25519 대신 secp256k1 유지한 건 하위호환 때문 공개키(= 주소)가
+  전부 secp256k1 기반
+** Schnorr
+- https://en.wikipedia.org/wiki/Schnorr_signature
+** secp256k1
+- [[www.secg.org/sec2-v2.pdf]]
+- [[en.bitcoin.it/wiki/Secp256k1]]
+- 곡선 \( y^2 = x^3 + 7 \pmod p) \) 이름임
+- p 는 \( 2^{256} \) 에 근접한 큰 소수 (0xFFF...FEFFFFFC2F)
+- 비트코인은 ECDSA over secp256k1 사용함
+- NIST P-256 은 \( y^2 = x^3 -3x + b \pmod p \) 에서 b 에 복잡한
+  16진수 사용 (NSA 백도어 의혹)
+- P-256 사용시보다 30% 더 빠름
+** Elliptic Curve Digital Signature Algorithm (ECDSA)
+- https://en.wikipedia.org/wiki/Elliptic_Curve_Digital_Signature_Algorithm
+- 아래서 p, C, n (C 의 위수), G (C 위의 기준점) 는 고정되어 있음
+*** 공개키 생성
+- https://en.wikipedia.org/wiki/Elliptic_curve_point_multiplication
+타원곡선 \( C \pmod p \) 에 대해,
+- \( \lambda = \dfrac{dC}{dx} \pmod p \)
+- \( 2\times (x, y) = (x' = \lambda^2 - 2x, \lambda(x - x') - y) \)
+개인키 \( d \pmod p \), 어떤 기준점 \( G \) 에 대해 공개키 \( Q = d\times G \).
+*** 서명 생성
+\( G \) 에 대해 \( n\times G = O \) 이 되게 하는 소수 n 이
+존재한다. (G 의 위수라고 부름)
+1. 난수 \( k \pmod p \) 생성.
+2. \( R = k\times G \), \( r = R.x \pmod n \) (if r = 0 goto 1.)
+3. \( z = \mathtt{HASH}(\mathtt{msg})\mathtt{\&\sim(-1U >>
+   n)}\mathtt{>> (256 - n)}\)
+   에 대해 \( s = k^{-1}(z + rd) \pmod n\)
+   (if s = 0 goto 1.)
+4. \( (r, s) \) 가 서명.
+
+참고: 매 서명마다 **반드시** 다른 $k$ 를 사용해야 함. (r 값이 같은
+동일 개인키로 생성된 다른 (r, s), (r, s') 서명 쌍이 존재하면
+\[
+k = \frac{z - z'}{s - s'}
+\]
+를 에서 비밀키
+\[
+d = \frac{sk - z}{r}
+\]
+구할 수 있게 됨.
+*** 서명 검증
+1. \( z = \mathtt{HASH}(\mathtt{msg})\mathtt{\&\sim (-1U >> n)}\mathtt{>>(256 - n)}) \)
+2. \( u_1 = zs^{-1} \pmod n \), \( u_2 = zs^{-1} \pmod n \).
+3. \( A = (x_1, y_1) = u_1\times G + u_2\times Q \)
+4. if \( r = x_1 \pmod n \), signature is valid.
+**** 서명 검증 검증
+\begin{align}
+A &= u_1\times G + u_2d\times G     \\
+  &= (u_1 + u_2d)\times G           \\
+  &= (zs^{-1} + rds^{-1})\times G   \\
+  &= (z + rd)s^{-1}\times G         \\
+  &= (z + rd)(z + rd)^{-1}k\times G \\
+  &= k\times G
+\end{align}
+이고 \( A.x = r \pmod n \)
+* Merkle Tree 를 사용하는 이유
+** 블록 구조
+- https://learnmeabitcoin.com/technical/block/
+[[file:./block.png]]
+- 트렌젝션들은 dynamic array 에 저장됨
+- Merkle tree 를 이루고 Block Header 에 Merkle Root (32 비트) 라는
+  필드 존재
+- Block Header 만 해싱에 포함
+** 백서 ([[./bitcoin_ko.pdf]]) (7-8) 설명
+- 최근 거래가 충분한 블록 아래에 묻히면, 그전에 지급된 거래는 디스크
+  공간을 절약하기 위해 폐기 가능.
+- 블록의 해시를 깨지 않기 위해 거래들은 Merkle Tree 로 해시 처리됨 (루트
+  정보만 블록 해시에 포함)
+- full network node 구동하지 않고도 자신의 거래가 포함된 머클 분기만
+  얻으면 거래가 해당 블록에 포함되었는지 알 수 있음.
+*** 한계
+정직한 노드가 네트워크를 제어하는 한 검증은 믿을만하지만, 공격자가
+네트워크를 계속 장악할 수 있는 한 조작한 거래로 속일 수 있음 (?).
+* Transaction
+- https://learnmeabitcoin.com/technical/transaction/
+-
+* Unspent Transaction Outputs (UTXO)
+전체 블록 탐색 없이 유효 트랜젝션 검증
+* UTXO 가 존재함에도 불구하고 PoW 가 필요한 이유
+* PoW 를 유지하기 위한 난이도 조절 알고리즘
