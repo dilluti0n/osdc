@@ -77,24 +77,28 @@ A &= u_1\times G + u_2d\times G     \\
 2. Script execution: OP_DUP, OP_HASH160 등 스택 연산 (fast)
 3. Signature verification: ECDSA/Schnorr 검증 (slow!)
    - 각 input마다 1개 이상의 서명 검증
-   - 타원곡선 scalar multiplication → ~256번의 EC 덧셈
+   - 타원곡선 scalar multiplication -> ~256번의 EC 덧셈
    - 각 덧셈은 여러 modular arithmetic 연산
 
 병목 지점
-- Bitcoin Core 공식: "CPU usage is dominated by ECDSA" [1]
+- "CPU usage is dominated by ECDSA" [1]
+- Vallois, Valentin & Guenane, Fouad. (2017). Bitcoin transaction:
+  From the creation to validation, a protocol
+  overview. 1-7. 10.1109/CSNET.2017.8241988. [3]
 - Jameson Lopp 벤치마크(2023):
   * 이상적 조건(무한 I/O)에서도 signature verification에만 3.45시간
   * 전체 2.8B ECDSA operations @ 4,430ns each [2]
-  * 실제 sync 6-8시간 → signature verification이 절반 이상
+  * 실제 sync 6-8시간 -> signature verification이 절반 이상
 
 보안 중요성 (DOS 방어)
 - 공격자가 invalid signature tx 대량 전송 가능
 - 검증 전에는 valid/invalid 구분 불가
-- 느린 검증 → mempool 막힘 → 정상 tx 처리 지연
+- 느린 검증 -> mempool 막힘 -> 정상 tx 처리 지연
 - Signature cache로 완화하지만, 새 tx는 반드시 검증 필요 [1]
 
-[1] Bitcoin Core Blog, 2017
-[2] Jameson Lopp, 2023 Bitcoin Node Performance Tests
+[1] https://en.bitcoin.it/wiki/Scalability
+[2] https://blog.lopp.net/2023-bitcoin-node-performance-tests/
+[3] https://www.researchgate.net/publication/322201810_Bitcoin_transaction_From_the_creation_to_validation_a_protocol_overview/citation/download
 **** 사용된 최적화 기법 (secp256k1_ecmult 를 중심으로)
 - Strauss 알고리즘을 사용한 windowed method (precomputed table 활용)
   - ./src/ecmult_compute_table_impl.h
