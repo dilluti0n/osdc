@@ -13,15 +13,6 @@
   전부 secp256k1 기반
 ** Schnorr
 - https://en.wikipedia.org/wiki/Schnorr_signature
-** secp256k1
-- [[www.secg.org/sec2-v2.pdf]]
-- [[en.bitcoin.it/wiki/Secp256k1]]
-- 곡선 \( y^2 = x^3 + 7 \pmod p) \) 이름임
-- p 는 \( 2^{256} \) 에 근접한 큰 소수 (0xFFF...FEFFFFFC2F)
-- 비트코인은 ECDSA over secp256k1 사용함
-- NIST P-256 은 \( y^2 = x^3 -3x + b \pmod p \) 에서 b 에 복잡한
-  16진수 사용 (NSA 백도어 의혹)
-- P-256 사용시보다 30% 더 빠름
 ** Elliptic Curve Digital Signature Algorithm (ECDSA)
 - https://en.wikipedia.org/wiki/Elliptic_Curve_Digital_Signature_Algorithm
 - 아래서 p, C, n (C 의 위수), G (C 위의 기준점) 는 고정되어 있음
@@ -67,6 +58,49 @@ A &= u_1\times G + u_2d\times G     \\
   &= k\times G
 \end{align}
 이고 \( A.x = r \pmod n \)
+** secp256k1
+- [[www.secg.org/sec2-v2.pdf]]
+- [[en.bitcoin.it/wiki/Secp256k1]]
+- 곡선 \( y^2 = x^3 + 7 \pmod p) \) 이름임
+- p 는 \( 2^{256} \) 에 근접한 큰 소수 (0xFFF...FEFFFFFC2F)
+- 비트코인은 ECDSA over secp256k1 사용함
+- NIST P-256 은 \( y^2 = x^3 -3x + b \pmod p \) 에서 b 에 복잡한
+  16진수 사용 (NSA 백도어 의혹)
+- P-256 사용시보다 30% 더 빠름
+*** libsecp256k1
+- https://github.com/bitcoin-core/secp256k1
+- ECDSA: ./src/ecdsa_impl.h
+- Schnorr: ./src/modules/schnorrsig/main_impl.h
+**** 중요한 이유
+트랜잭션 검증 과정
+1. UTXO validation: 해당 input이 존재하는지 DB 조회 (fast)
+2. Script execution: OP_DUP, OP_HASH160 등 스택 연산 (fast)
+3. Signature verification: ECDSA/Schnorr 검증 (slow!)
+   - 각 input마다 1개 이상의 서명 검증
+   - 타원곡선 scalar multiplication → ~256번의 EC 덧셈
+   - 각 덧셈은 여러 modular arithmetic 연산
+
+병목 지점
+- Bitcoin Core 공식: "CPU usage is dominated by ECDSA" [1]
+- Jameson Lopp 벤치마크(2023):
+  * 이상적 조건(무한 I/O)에서도 signature verification에만 3.45시간
+  * 전체 2.8B ECDSA operations @ 4,430ns each [2]
+  * 실제 sync 6-8시간 → signature verification이 절반 이상
+
+보안 중요성 (DOS 방어)
+- 공격자가 invalid signature tx 대량 전송 가능
+- 검증 전에는 valid/invalid 구분 불가
+- 느린 검증 → mempool 막힘 → 정상 tx 처리 지연
+- Signature cache로 완화하지만, 새 tx는 반드시 검증 필요 [1]
+
+[1] Bitcoin Core Blog, 2017
+[2] Jameson Lopp, 2023 Bitcoin Node Performance Tests
+**** 사용된 최적화 기법 (secp256k1_ecmult 를 중심으로)
+- Strauss 알고리즘을 사용한 windowed method (precomputed table 활용)
+  - ./src/ecmult_compute_table_impl.h
+- Jacobian(secp256k1_gej) 사용해서 모듈러 역원 계산(safegcd)을 마지막 한번만
+- endomorphism (짧게)
+- field_5x52.h: 5x52 트릭 (256 비트 곱셈시 4x64 말고 5x52 사용해 받아올림 처리를 마지막 한번만)
 * Merkle Tree 를 사용하는 이유
 ** 블록 구조
 - https://learnmeabitcoin.com/technical/block/
